@@ -1,4 +1,6 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -22,6 +24,10 @@ import           Cardano.Prelude hiding (trace)
 import qualified Control.Concurrent.Async as Async
 import           Control.Exception.Safe (MonadCatch)
 import           Control.Monad.Trans.Except.Extra (catchIOExceptT)
+import           Data.List (nub)
+import           Data.Text (pack)
+import           Data.Time.Clock (UTCTime, getCurrentTime)
+import           Data.Version (showVersion)
 
 import           Cardano.BM.Backend.Aggregation (plugin)
 import           Cardano.BM.Backend.EKGView (plugin)
@@ -35,7 +41,7 @@ import qualified Cardano.BM.Configuration.Model as Config
 import           Cardano.BM.Counters (readCounters)
 import           Cardano.BM.Data.Backend (Backend, BackendKind)
 import           Cardano.BM.Data.Counter
-import           Cardano.BM.Data.LogItem (LOContent (..), LOMeta (..), LoggerName,
+import           Cardano.BM.Data.LogItem (LOContent (..), LOMeta (..), LogObject (..), LoggerName,
                      PrivacyAnnotation (..), mkLOMeta)
 import           Cardano.BM.Data.Observable
 import           Cardano.BM.Data.Severity (Severity (..))
@@ -50,9 +56,22 @@ import           Cardano.BM.Setup (setupTrace_, shutdown)
 import           Cardano.BM.Trace (Trace, appendName, traceNamedObject)
 import qualified Cardano.BM.Trace as Trace
 
+import qualified Cardano.Chain.Genesis as Gen
+import           Cardano.Slotting.Slot (EpochSize (..))
+import qualified Ouroboros.Consensus.BlockchainTime.WallClock.Types as WCT
+import           Ouroboros.Consensus.Byron.Ledger.Conversions
+import           Ouroboros.Consensus.Cardano.Block
+import           Ouroboros.Consensus.Cardano.CanHardFork
+import qualified Ouroboros.Consensus.Config as Consensus
+import           Ouroboros.Consensus.Config.SupportsNode (ConfigSupportsNode (..))
+import           Ouroboros.Consensus.Shelley.Ledger.Ledger
+import qualified Shelley.Spec.Ledger.API as SL
+
 import           Cardano.Config.Git.Rev (gitRev)
-import           Cardano.Node.Configuration.POM (NodeConfiguration (..))
+import           Cardano.Node.Configuration.POM (NodeConfiguration (..), ncProtocol)
+import           Cardano.Node.Protocol.Types
 import           Cardano.Node.Types
+import           Paths_cardano_node (version)
 
 --------------------------------
 -- Layer
@@ -111,10 +130,12 @@ loggingCLIConfiguration = maybe emptyConfig readConfig
 
 -- | Create logging feature for `cardano-node`
 createLoggingLayer
-  :: Text
+  :: forall c. CardanoHardForkConstraints c
+  => Text
   -> NodeConfiguration
+  -> Consensus.TopLevelConfig (CardanoBlock c)
   -> ExceptT ConfigError IO LoggingLayer
-createLoggingLayer ver nodeConfig' = do
+createLoggingLayer ver nodeConfig' cfg = do
 
   logConfig <- loggingCLIConfiguration $
     if ncLoggingSwitch nodeConfig'
@@ -154,8 +175,13 @@ createLoggingLayer ver nodeConfig' = do
            >>= loadPlugin switchBoard
 
      Config.getForwardTo logConfig >>= \forwardTo ->
-       when (isJust forwardTo) $
-         Cardano.BM.Backend.TraceForwarder.plugin logConfig trace switchBoard "forwarderMinSeverity"
+       when (isJust forwardTo) $ do
+         nodeStartTime <- getCurrentTime
+         Cardano.BM.Backend.TraceForwarder.plugin logConfig
+                                                  trace
+                                                  switchBoard
+                                                  "forwarderMinSeverity"
+                                                  (nodeBasicInfo nodeConfig cfg nodeStartTime)
            >>= loadPlugin switchBoard
 
      Cardano.BM.Backend.Aggregation.plugin logConfig trace switchBoard
@@ -211,3 +237,49 @@ createLoggingLayer ver nodeConfig' = do
 
 shutdownLoggingLayer :: LoggingLayer -> IO ()
 shutdownLoggingLayer = shutdown . llSwitchboard
+
+-- The node provides the basic node's information for TraceForwarderBK.
+-- It will be sent once TraceForwarderBK is connected to an external process
+-- (for example, RTView).
+nodeBasicInfo :: forall c. CardanoHardForkConstraints c
+              => NodeConfiguration
+              -> Consensus.TopLevelConfig (CardanoBlock c)
+              -> UTCTime
+              -> IO [LogObject Text]
+nodeBasicInfo nc cfg nodeStartTime' = do
+  let CardanoLedgerConfig cfgByron cfgShelley cfgAllegra cfgMary = Consensus.configLedger cfg
+      protocolDependentItems =
+        case ncProtocol nc of
+          ByronProtocol   -> getGenesisValuesByron cfgByron
+          ShelleyProtocol -> getGenesisValues "Shelley" cfgShelley
+          CardanoProtocol -> getGenesisValuesByron cfgByron
+                             ++ getGenesisValues "Shelley" cfgShelley
+                             ++ getGenesisValues "Allegra" cfgAllegra
+                             ++ getGenesisValues "Mary"    cfgMary
+
+  meta <- mkLOMeta Notice Public
+  let items = nub $
+        [ ("protocol",      pack . protocolName $ ncProtocol nc)
+        , ("version",       pack . showVersion $ version)
+        , ("commit",        gitRev)
+        , ("nodeStartTime", show nodeStartTime')
+        ] ++ protocolDependentItems
+      logObjects =
+        map (\(lName, msg) -> LogObject ("cardano.node.info." <> lName)
+                                        meta
+                                        (LogMessage msg)) items
+  return logObjects
+ where
+  getGenesisValuesByron config =
+    let genesis = byronLedgerConfig config
+    in [ ("systemStartTime",  show (WCT.getSystemStart . getSystemStart $ Consensus.configBlock cfg))
+       , ("slotLengthByron",  show (WCT.getSlotLength . fromByronSlotLength $ genesisSlotLength genesis))
+       , ("epochLengthByron", show (unEpochSize . fromByronEpochSlots $ Gen.configEpochSlots genesis))
+       ]
+  getGenesisValues era config =
+    let genesis = shelleyLedgerGenesis $ shelleyLedgerConfig config
+    in [ ("systemStartTime",          show (SL.sgSystemStart genesis))
+       , ("slotLength" <> era,        show (WCT.getSlotLength . WCT.mkSlotLength $ SL.sgSlotLength genesis))
+       , ("epochLength" <> era,       show (unEpochSize . SL.sgEpochLength $ genesis))
+       , ("slotsPerKESPeriod" <> era, show (SL.sgSlotsPerKESPeriod genesis))
+       ]

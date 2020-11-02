@@ -108,9 +108,19 @@ runNode cmdPc = do
                            pure ()
       Nothing -> pure ()
 
+    eitherSomeProtocol <- runExceptT $ mkConsensusProtocol nc
+
+    SomeConsensusProtocol (p :: Consensus.Protocol IO blk (BlockProtocol blk)) <-
+      case eitherSomeProtocol of
+        Left err -> putTextLn (renderProtocolInstantiationError err) >> exitFailure
+        Right (SomeConsensusProtocol p) -> pure $ SomeConsensusProtocol p
+
+    let ProtocolInfo{ pInfoConfig = cfg } = Consensus.protocolInfo p
+
     eLoggingLayer <- runExceptT $ createLoggingLayer
                      (Text.pack (showVersion version))
                      nc
+                     cfg
 
     loggingLayer <- case eLoggingLayer of
                       Left err -> putTextLn (show err) >> exitFailure
@@ -119,15 +129,7 @@ runNode cmdPc = do
     !trace <- setupTrace loggingLayer
     let tracer = contramap pack $ toLogObject trace
 
-
     logTracingVerbosity nc tracer
-
-    eitherSomeProtocol <- runExceptT $ mkConsensusProtocol nc
-
-    SomeConsensusProtocol (p :: Consensus.Protocol IO blk (BlockProtocol blk)) <-
-      case eitherSomeProtocol of
-        Left err -> putTextLn (renderProtocolInstantiationError err) >> exitFailure
-        Right (SomeConsensusProtocol p) -> pure $ SomeConsensusProtocol p
 
     upTimeThread <- Async.async $ traceNodeUpTime (appendName "metrics" trace) =<< getMonotonicTimeNSec
 
