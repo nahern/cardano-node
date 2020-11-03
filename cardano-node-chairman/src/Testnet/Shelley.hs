@@ -75,7 +75,7 @@ rewriteGenesisSpec supply =
   rewriteObject
     $ HM.insert "activeSlotsCoeff" (toJSON @Double 0.1)
     . HM.insert "securityParam" (toJSON @Int 10)
-    . HM.insert "epochLength" (toJSON @Int 1500)
+    . HM.insert "epochLength" (toJSON @Int 1000)
     . HM.insert "maxLovelaceSupply" (toJSON supply)
     . flip HM.adjust "protocolParams"
       ( rewriteObject (HM.insert "decentralisationParam" (toJSON @Double 0.7))

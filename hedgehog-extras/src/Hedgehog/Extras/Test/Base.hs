@@ -85,6 +85,7 @@ import qualified Hedgehog as H
 import qualified Hedgehog.Extras.Test.MonadAssertion as H
 import qualified Hedgehog.Internal.Property as H
 import qualified System.Directory as IO
+import qualified System.Environment as IO
 import qualified System.Info as IO
 import qualified System.IO as IO
 import qualified System.IO.Temp as IO
@@ -115,13 +116,15 @@ failMessage cs = failWithCustom cs Nothing
 workspace :: (MonadTest m, MonadIO m, HasCallStack) => FilePath -> (FilePath -> m ()) -> m ()
 workspace prefixPath f = GHC.withFrozenCallStack $ do
   systemTemp <- H.evalIO IO.getCanonicalTemporaryDirectory
+  maybeKeepWorkspace <- H.evalIO $ IO.lookupEnv "KEEP_WORKSPACE"
   let systemPrefixPath = systemTemp <> "/" <> prefixPath
   H.evalIO $ IO.createDirectoryIfMissing True systemPrefixPath
   ws <- H.evalIO $ IO.createTempDirectory systemPrefixPath "test"
   H.annotate $ "Workspace: " <> ws
   liftIO $ IO.writeFile (ws <> "/module") callerModuleName
   f ws
-  when (IO.os /= "mingw32") . H.evalIO $ IO.removeDirectoryRecursive ws
+  when (IO.os /= "mingw32" && maybeKeepWorkspace /= Just "1") $ do
+    H.evalIO $ IO.removeDirectoryRecursive ws
 
 -- | Create a workspace directory which will exist for at least the duration of
 -- the supplied block.

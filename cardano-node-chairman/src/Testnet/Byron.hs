@@ -85,7 +85,7 @@ testnet H.Conf {..} = do
     , "--genesis-output-dir", tempAbsPath </> "genesis"
     , "--start-time", showUTCTimeSeconds startTime
     , "--protocol-parameters-file", base </> "scripts/protocol-params.json"
-    , "--k", "2160"
+    , "--k", "10"
     , "--protocol-magic", show @Int testnetMagic
     , "--n-poor-addresses", "128"
     , "--n-delegate-addresses", "7"

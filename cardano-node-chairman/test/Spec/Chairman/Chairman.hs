@@ -14,6 +14,7 @@ import           Data.Int
 import           Data.Maybe
 import           Data.Semigroup
 import           Data.String
+import           GHC.Num
 import           Hedgehog.Extras.Stock.IO.Network.Sprocket (Sprocket (..))
 import           Hedgehog.Extras.Test.Base (Integration)
 import           System.Exit (ExitCode (..))
@@ -38,8 +39,8 @@ import qualified Testnet.Conf as H
 mkSprocket :: FilePath -> FilePath -> String -> Sprocket
 mkSprocket tempBaseAbsPath socketDir node = Sprocket tempBaseAbsPath (socketDir </> node)
 
-chairmanOver :: H.Conf -> [String] -> Integration ()
-chairmanOver H.Conf {..} allNodes = do
+chairmanOver :: Int -> Int -> H.Conf -> [String] -> Integration ()
+chairmanOver timeoutSeconds requiredProgress H.Conf {..} allNodes = do
   nodeStdoutFile <- H.noteTempFile logDir $ "chairman" <> ".stdout.log"
   nodeStderrFile <- H.noteTempFile logDir $ "chairman" <> ".stderr.log"
 
@@ -52,11 +53,11 @@ chairmanOver H.Conf {..} allNodes = do
 
   (_, _, _, hProcess, _) <- H.createProcess =<<
     ( H.procChairman
-      ( [ "--timeout", "120"
+      ( [ "--timeout", show @Int timeoutSeconds
         , "--config", tempAbsPath </> "configuration.yaml"
         , "--security-parameter", "2160"
         , "--testnet-magic", show @Int testnetMagic
-        , "--require-progress", "3"
+        , "--require-progress", show @Int requiredProgress
         ]
       <> (sprockets >>= (\sprocket -> ["--socket-path", IO.sprocketArgumentName sprocket]))
       ) <&>
@@ -69,7 +70,7 @@ chairmanOver H.Conf {..} allNodes = do
       )
     )
 
-  chairmanResult <- H.waitSecondsForProcess 130 hProcess
+  chairmanResult <- H.waitSecondsForProcess (timeoutSeconds + 10) hProcess
 
   case chairmanResult of
     Right ExitSuccess -> return ()
