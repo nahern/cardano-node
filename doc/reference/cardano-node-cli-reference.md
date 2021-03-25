@@ -1,4 +1,4 @@
-# Cardano Node CLI Reference
+# Cardano node CLI: command reference
 
 The command line interface (CLI) provides a collection of tools for generating keys, constructing transactions, creating certificates, and performing other important tasks. It is organized in a hierarchy of subcommands, and each level comes with its own built-in documentation of command syntax and options.
 
