@@ -1,11 +1,11 @@
-# Register stake address on the blockchain
+# Registering stake address on the blockchain
 
-Stake address needs to be registered on the blockchain to be useful. Registering keys requires:
+Your stake address needs to be registered on the blockchain to be useful. Registering keys requires:
 
-* Create a registration certificate.
-* Submit the certificate to the blockchain with a transaction.
+* Creating a registration certificate.
+* Submitting the certificate to the blockchain with a transaction.
 
-#### Create a _registration certificate_:
+#### Creating a registration certificate:
 
     cardano-cli stake-address registration-certificate \
     --stake-verification-key-file stake.vkey \
@@ -23,7 +23,7 @@ For the transaction draft, --tx.out, --invalid-hereafter and --fee can be set to
     --out-file tx.draft \
     --certificate-file stake.cert
 
-#### Calculate fees
+#### Calculating fees
 
     cardano-cli transaction calculate-min-fee \
     --tx-body-file tx.draft \
@@ -56,13 +56,13 @@ Query the UTXO of the address that pays for the transaction and deposit:
     > ----------------------------------------------------------------------------------------
     > b64ae44e1195b04663ab863b62337e626c65b0c9855a9fbb9ef4458f81a6f5ee     1      1000000000 lovelace
 
-#### Calculate the change to send back to payment address after including the deposit
+#### Calculating the change to send back to payment address after including the deposit
 
     expr 1000000000 - 171485 - 2000000
 
     > 997828515
 
-#### Submit the certificate with a transaction:
+#### Submitting the certificate with a transaction:
 
 Build the transaction, this time include  --invalid-hereafter and --fee
 
@@ -91,4 +91,4 @@ And submit it:
 
 Your stake key is now registered on the blockchain.
 
-**Note**`--mainnet` identifies the Cardano mainnet, for testnets use `--testnet-magic 1097911063` instead.
+**Note**` --mainnet` identifies the Cardano mainnet, for testnets use `--testnet-magic 1097911063` instead.
